@@ -1,0 +1,1343 @@
+---
+title: "Devoir 1 - Économétrie des séries temporelles"
+author: |
+  "Lijin GAO (11364985), Steve Galarneau (98118040)"
+output:
+  pdf_document:
+    latex_engine: xelatex
+    number_sections: false
+  word_document: default
+header-includes:
+- \usepackage{xcolor}
+- \definecolor{matlabOrange}{RGB}{217,85,26}
+- \usepackage{titling}
+- \pretitle{\begin{center}\color{matlabOrange}\Huge}
+- \posttitle{\end{center}}
+knitr:
+  fig.width: 6
+  fig.height: 4
+  fig.align: center
+---
+
+
+# \Large Instructions
+
+- Formez une équipe de trois membres au maximum pour réaliser le devoir.
+
+- Fournissez un document PDF détaillé exporté à partir d’un fichier R Markdown (comme celui-ci), d’un notebook Python ou d’un script MATLAB. Le fichier doit contenir tout le code utilisé pour produire les résultats et répondre aux questions. Le code doit être clair et facile à comprendre, les figures doivent avoir des titres, les axes doivent être étiquetés, et les graphiques doivent comporter une légende. Des explications, justifications et interprétations sont $\text{\underline{obligatoires}}$ pour chaque question.
+
+- Le devoir doit être soumis électroniquement sur ZoneCours (Remise de travaux).
+
+
+
+- Toute forme de plagiat est inacceptable.
+
+- Téléchargez le fichier de données disponible sur ZoneCours. Il contient des données mensuelles historiques sur le taux de change CAD/USD.
+
+
+## Question 1 - Stationnarité
+
+### 1.a) 
+Chargez les données. Produisez un graphique de la série \(z_t \equiv \ln(CADUSD_t)\) avec des étiquettes sur chaque axe et un titre \( \ln(CADUSD_t) \). L’axe des abscisses doit représenter le temps.
+
+
+```{r}
+#Clear the workspace
+rm(list=ls())
+
+#load required packages
+library(readxl)
+
+# Import the data (Excel file in the same folder as the Rmd file)
+data <- read_excel("EXCAUS.xlsx", sheet = "Monthly")
+head(data,10)
+
+# Extract time and exchange rate
+date <- as.Date(data$observation_date)
+CADUSD <- data$EXCAUS
+
+# Log-transform the exchange rate
+z_t <- log(CADUSD)
+
+# Plot the time series
+plot(
+  date, z_t,
+  type = "l",
+  col="blue",
+  main = "ln(CADUSD)",
+  xlab = "Time",
+  ylab = "ln(CADUSD)",
+  cex.axis = 1.2,
+  cex.lab = 1.2,
+  cex.main = 1.2
+)
+```
+
+
+**Interpretation:La série ln(CADUSDt) ne semble pas stationnaire, car elle ne fluctue pas autour d’une moyenne constante et présente des variations persistantes au cours du temps.**
+
+
+### 1.b) 
+Supposons que la la série \(z_t\) a une tendance quadratique déterministe : \(\tau_t = \alpha + \beta t + \gamma t^2\). Appliquez la transformation nécessaire pour stationnariser \(z_t\), puis faites un graphique de la série obtenue. 
+
+```{r}
+
+# Length of the series
+T <- length(z_t)
+
+# Time index t = 1,...,T
+trend <- 1:T
+
+# Build regressors: intercept + t + t^2
+X <- cbind(1, trend, trend^2)
+
+# Dependent variable
+Y <- z_t
+
+# OLS estimator: B = (X'X)^(-1) X'Y   (same formula as in the file)
+B <- solve(crossprod(X), crossprod(X, Y))
+
+# Detrended series (residuals): z_t - fitted trend
+z_detrended <- Y - X %*% B
+
+# Plot detrended series
+plot(
+  date, z_detrended,
+  type = "l",
+  col = "blue",
+  main = "Detrended series (quadratic deterministic trend removed)",
+  xlab = "Time",
+  ylab = "z_t - (alpha_hat + beta_hat t + gamma_hat t^2)",
+  cex.axis = 1.2,
+  cex.lab = 1.2,
+  cex.main = 1.2
+)
+
+```
+
+**Interpretation: Nous estimons que la série $z_t$ suit une tendance déterministe quadratique de la forme $α + β t + γ t^2$. Nous estimon cette tendance par la méthode des moindres carrés ordinaires (MCO) et la retirons de la série initiale. La série détrendée fluctue autour de zéro, ce qui indique que la composante déterministe quadratique a été éliminée. Toutefois, on observe encore une certaine persistance dans la dynamique de la série, ce qui suggère que la suppression d’une tendance déterministe pourrait ne pas suffire pour assurer la stationnarité.**
+
+
+### 1.c)
+Supposons que la série \(z_t\) a une tendance stochastique. Appliquez la transformation requise pour stationnariser \(z_t\), puis faites un graphique de la série obtenue. 
+
+
+```{r}
+# First difference of the log series (growth rate in %)
+dz <- diff(z_t)* 100
+
+# Align dates (diff() reduces the length by 1)
+date_dz <- date[-1]
+
+# Plot the differenced series
+plot(
+  date_dz, dz,
+  col="blue",
+  type = "l",
+  main = "First-Differenced Series",
+  xlab = "Time",
+  ylab = "Delta ln(CADUSD)(%)",
+  cex.axis = 1.2,
+  cex.lab = 1.2,
+  cex.main = 1.2)
+
+```
+
+**Interpretation: La première différence de $z_t = \ln(CADUSD)$ est utilisée afin de stationnariser la série en présence d’une tendance stochastique.La série obtenue fluctue autour de zéro sans tendance apparente, ce qui indique qu’elle est stationnaire.  La moyenne semble constante bien qu'il y a parfois quelques fortes variations.**
+
+### 1.d)
+Tracez et analysez les fonctions d'autocorrélation des échantillons des séries obtenues aux parties 1.b) et 1.c) afin de déterminer si les séries sont stationnaires. Laquelle des deux transformations produit une série stationnaire et pourquoi ?
+
+```{r}
+#Assume for one and half year:lag of 18 months
+acf1<-acf(z_detrended, lag.max = 18,
+    main = "ACF: detrended (quadratic)",
+    xlab = "Lag", ylab = "ACF")
+acf1
+
+
+acf2<-acf(dz, lag.max = 18,
+    main = "ACF: first difference",
+    xlab = "Lag", ylab = "ACF")
+acf2
+```
+
+**Interpretation: L’ACF de la série détrendée montre une décroissance très lente et des autocorrélations élevées, ce qui suggère la présence d’une forte persistance et donc une non-stationnarité. En revanche, l’ACF de la série en première différence décroît rapidement et la plupart des autocorrélations sont non significatives. Nous estimons que la transformation stochastique par première différence nous permet d'obtenir une série stationnaire.**
+
+
+\newpage 
+
+
+## Question 2 - Sélection des modèles
+
+### 2.a) 
+À partir d'ici on va appeler la série stationnarisé \( y_t \). Estimez les 8 modèles suivants par maximum de vraisemblance sur la série \(y_t\), rapportez les résultats d’estimation et vérifiez si les conditions de stationnarité sont satisfaites. 
+
+
+AR(1) \(  y_t = \delta + \phi_1 y_{t-1} + u_t  \)
+
+AR(2) \(  y_t = \delta + \phi_1 y_{t-1}  + \phi_2 y_{t-2}  + u_t  \)
+
+AR(3) \(  y_t = \delta + \phi_1 y_{t-1}  + \phi_2 y_{t-2} + \phi_3 y_{t-3}  + u_t  \)
+
+AR(4) \(  y_t = \delta + \phi_1 y_{t-1}  + \phi_2 y_{t-2} + \phi_3 y_{t-3} + \phi_4 y_{t-4}  + u_t \)
+
+ARMA(1,1) \(  y_t = \delta + \phi_1 y_{t-1} + u_t - \theta_1 u_{t-1} \)
+
+ARMA(2,2) \(  y_t = \delta + \phi_1 y_{t-1}  + \phi_2 y_{t-2}  + u_t - \theta_1 u_{t-1} - \theta_2 u_{t-2}  \)
+
+ARMA(3,3) \(  y_t = \delta + \phi_1 y_{t-1}  + \phi_2 y_{t-2} + \phi_3 y_{t-3}  + u_t - \theta_1 u_{t-1} - \theta_2 u_{t-2} - \theta_3 u_{t-3} \)
+
+ARMA(4,4) \(  y_t = \delta + \phi_1 y_{t-1}  + \phi_2 y_{t-2} + \phi_3 y_{t-3} + \phi_4 y_{t-4}  + u_t - \theta_1 u_{t-1} - \theta_2 u_{t-2} - \theta_3 u_{t-3} - \theta_4 u_{t-4} \)
+
+```{r}
+library(forecast)
+library(stats)
+library(tseries)
+
+# Série stationnarisée y_t 
+y_t <- as.numeric(dz)
+y_t <- y_t[!is.na(y_t)]
+
+# Estimer les 8 modèles (MLE) 
+AR1    <- forecast::Arima(y_t, order = c(1,0,0), include.mean = TRUE, method = "ML")
+AR2    <- forecast::Arima(y_t, order = c(2,0,0), include.mean = TRUE, method = "ML")
+AR3    <- forecast::Arima(y_t, order = c(3,0,0), include.mean = TRUE, method = "ML")
+AR4    <- forecast::Arima(y_t, order = c(4,0,0), include.mean = TRUE, method = "ML")
+
+ARMA11 <- forecast::Arima(y_t, order = c(1,0,1), include.mean = TRUE, method = "ML")
+ARMA22 <- forecast::Arima(y_t, order = c(2,0,2), include.mean = TRUE, method = "ML")
+ARMA33 <- forecast::Arima(y_t, order = c(3,0,3), include.mean = TRUE, method = "ML")
+ARMA44 <- forecast::Arima(y_t, order = c(4,0,4), include.mean = TRUE, method = "ML")
+
+# Liste NOMMÉE des modèles (important pour models AR1 etc.) 
+models <- list(
+  AR1 = AR1, AR2 = AR2, AR3 = AR3, AR4 = AR4,
+  ARMA11 = ARMA11, ARMA22 = ARMA22, ARMA33 = ARMA33, ARMA44 = ARMA44
+)
+
+model_labels <- c(
+  AR1="AR(1)", AR2="AR(2)", AR3="AR(3)", AR4="AR(4)",
+  ARMA11="ARMA(1,1)", ARMA22="ARMA(2,2)", ARMA33="ARMA(3,3)", ARMA44="ARMA(4,4)"
+)
+
+# Afficher les résultats 
+for (nm in names(models)) {
+  cat(model_labels[nm], "\n")
+  print(models[[nm]])
+}
+
+# ===== Vérification stationnarité (AR-part only) via matrice compagnon (comme Code 3) =====
+#An AR(p) model is covariance-stationary iff all eigenvalues of the companion matrix lie strictly inside the unit circle (modulus < 1).
+cat("\n--- Stationarity check (AR part): eigenvalue moduli < 1 ---\n")
+
+for (nm in names(models)) {
+  
+  # Extract fitted model
+  fit <- models[[nm]]
+  
+  # Extract AR coefficients (phi_1, ..., phi_p)
+  ar_coefs <- fit$coef[grep("^ar", names(fit$coef))]
+  
+  # Determine AR order p
+  p <- length(ar_coefs)
+
+  # ------------------------------------------------------------
+  # Case 1: No AR terms (pure MA model)
+  # Pure MA models are always covariance-stationary
+  # ------------------------------------------------------------
+  if (p == 0) {
+    cat(model_labels[nm], 
+        "-> No AR terms (pure MA): covariance-stationary\n")
+    next
+  }
+
+  # ------------------------------------------------------------
+  # Case 2: AR(1)
+  # Companion matrix reduces to the scalar phi_1
+  # ------------------------------------------------------------
+  if (p == 1) {
+    m_phi <- matrix(ar_coefs, nrow = 1, ncol = 1)
+  } 
+   # ------------------------------------------------------------
+  # Case 3: AR(p), p >= 2
+  # Build the companion matrix:
+  else {
+    m_phi <- rbind(
+      matrix(ar_coefs, nrow = 1),
+      cbind(diag(p - 1), rep(0, p - 1))
+    )
+  }
+# Compute eigenvalues of the companion matrix
+  eigvals <- eigen(m_phi, only.values = TRUE)$values
+# Compute moduli (absolute values) of eigenvalues
+  moduli  <- Mod(eigvals)
+
+  cat(model_labels[nm],
+      "-> moduli:", paste(round(moduli, 4), collapse = ", "),
+      "| Stationary:", all(moduli < 1), "\n")
+}
+
+```
+
+
+**Interpretation:Les huit modèles estimés satisfont la condition de stationnarité : les modules des valeurs propres sont strictement inférieurs à 1. La série peut donc être considérée comme covariance-stationnaire sous ces spécifications.**
+
+
+### 2.b) 
+Utilisez des tests statistiques pour la sélection de retards, des critères d'information et des tests d'autocorrélation des résidus (jusqu'à 18 retards) pour choisir deux modèles. Choisissez un modèle parmi AR(1), AR(2), AR(3), AR(4), et un autre parmi ARMA(1,1), ARMA(2,2), ARMA(3,3), ARMA(4,4). 
+
+```{r}
+# PART A – AR Model Selection (AR(1) to AR(4))  
+# Methods used:
+#   (1) Wald test:        H0: phi_p = 0 (last added AR lag)
+#   (2) Likelihood Ratio: AR(p) vs AR(p-1) (nested models)
+#   (3) Information criteria: AIC / BIC
+#   (4) Ljung–Box test:   residual autocorrelation up to 18 lags
+
+library(MASS)
+library(forecast)
+# (0) Settings
+
+pbar <- 4                 # Maximum AR order to consider (AR(1) to AR(4))
+Ts <- length(y_t)         # Sample size
+max_lag <- 18             # Maximum lag for Ljung-Box tests
+
+
+# (1) Storage objects
+# Matrices to store Wald, LR, and Information Criteria results
+
+W  <- matrix(NA, nrow = pbar, ncol = 4)     # Wald test results
+LR <- matrix(NA, nrow = pbar, ncol = 4)     # Likelihood Ratio test results
+AIC_mat <- matrix(NA, nrow = pbar, ncol = 2) # AIC values
+BIC_mat <- matrix(NA, nrow = pbar, ncol = 2) # BIC values
+
+# Assign column names
+colnames(W)  <- colnames(LR) <- c("lag", "test-stat", "crit-val", "p-value")
+colnames(AIC_mat) <- colnames(BIC_mat) <- c("lag", "Info-Crit")
+
+# 5% critical value from Chi-square(1) distribution
+chi2_crit_5 <- qchisq(0.95, df = 1)
+
+# (2) Wald tests + Likelihood Ratio tests + AIC/BIC
+# Loop over AR(1) to AR(4)
+
+for (p in 1:pbar) {
+  # Restricted model (AR(p-1)) or white noise if p = 1
+  if (p == 1) {
+    fit0 <- arima(y_t, order = c(0, 0, 0), include.mean = TRUE)
+  } else {
+    fit0 <- arima(y_t, order = c(p - 1, 0, 0), include.mean = TRUE)
+  }
+  # Unrestricted model: AR(p)
+  fit1 <- arima(y_t, order = c(p, 0, 0), include.mean = TRUE)
+
+  # Wald Test
+  # H0: phi_p = 0  (last AR coefficient equals zero)
+
+  coefs <- fit1$coef             # Estimated coefficients
+  Vcov  <- fit1$var.coef         # Variance-covariance matrix
+  phi_name <- paste0("ar", p)    # Name of AR(p) coefficient
+
+# Extract coefficient and its standard error
+  if (phi_name %in% names(coefs)) {
+    phi_p  <- coefs[phi_name]
+    se_phi <- sqrt(Vcov[phi_name, phi_name])
+  } else {
+    # Fallback in case naming differs
+    phi_p  <- coefs[p]
+    se_phi <- sqrt(diag(Vcov))[p]
+  }
+
+# Wald statistic ~ Chi-square(1)
+  W_val <- as.numeric((phi_p / se_phi)^2)
+
+  W[p, ] <- c(
+    p,
+    W_val,
+    chi2_crit_5,
+    1 - pchisq(W_val, df = 1)
+  )
+  
+  # Likelihood Ratio Test
+  # H0: AR(p-1) is sufficient (no need for AR(p))
+  LR_val <- 2 * (as.numeric(logLik(fit1)) - as.numeric(logLik(fit0)))
+
+  LR[p, ] <- c(
+    p,
+    LR_val,
+    chi2_crit_5,
+    1 - pchisq(LR_val, df = 1)
+  )
+
+
+# (3)Information Criteria
+  # Store AIC and BIC for model comparison
+  AIC_mat[p, ] <- c(p, AIC(fit1))
+  BIC_mat[p, ] <- c(p, BIC(fit1))
+}
+cat("\n--- Wald Test (H0: phi_p = 0) ---\n")
+print(round(W, 3))
+
+cat("\n--- Likelihood Ratio Test (AR(p) vs AR(p-1)) ---\n")
+print(round(LR, 3))
+
+cat("\n--- AIC (smaller is better) ---\n")
+print(round(AIC_mat, 3))
+
+cat("\n--- BIC (smaller is better) ---\n")
+print(round(BIC_mat, 3))
+
+# (4) Ljung–Box tests on AR residuals up to 18 lags
+cat("PART A : Ljung-Box on AR residuals\n")   # FIX: title (was incorrectly "PARTIE B")
+
+LB <- matrix(NA, nrow = max_lag, ncol = pbar)
+colnames(LB) <- paste0("AR(", 1:pbar, ")")
+rownames(LB) <- paste0("lag", 1:max_lag)
+
+for (p in 1:pbar) {
+  fit <- arima(y_t, order = c(p,0,0), include.mean = TRUE)
+  res <- residuals(fit)
+  for (lag in 1:max_lag) {
+    if (lag <= p) {
+      LB[lag, p] <- NA
+    } else {
+      LB[lag, p] <- Box.test(res, lag = lag, type = "Ljung-Box", fitdf = p)$p.value
+    }
+  }
+}
+
+cat("\n--- Ljung–Box p-values on residuals (lags 1..18) ---\n")
+print(round(LB, 3))
+
+# ============================================================
+# PARTIE B : Sélection parmi ARMA(1,1) - ARMA(4,4)
+# ============================================================
+cat("PARTIE B : ARMA models\n")
+
+model_labels <- c(
+  ARMA11 = "ARMA(1,1)",
+  ARMA22 = "ARMA(2,2)",
+  ARMA33 = "ARMA(3,3)",
+  ARMA44 = "ARMA(4,4)"
+)
+# ------------------------------------------------------------
+# 1) Likelihood Ratio Tests
+# Compare nested ARMA(p,p) vs ARMA(p-1,p-1)
+# H0: additional AR and MA parameters are jointly zero
+
+cat("\n--- Likelihood Ratio tests (ARMA(p,p) vs ARMA(p-1,p-1)) ---\n")
+
+LR_test <- function(restricted, unrestricted, df) {
+  LR <- 2 * (as.numeric(logLik(unrestricted)) - as.numeric(logLik(restricted)))
+    # p-value from chi-square distribution
+  pval <- pchisq(LR, df = df, lower.tail = FALSE)
+  c(LR = LR, df = df, p.value = pval)
+}
+
+print(LR_test(models$ARMA11, models$ARMA22, df = 2))
+print(LR_test(models$ARMA22, models$ARMA33, df = 2))
+print(LR_test(models$ARMA33, models$ARMA44, df = 2))
+
+# 2) Wald Tests
+# Test whether the last AR or MA coefficient equals zero
+# H0: beta_last = 0
+cat("\n--- Wald tests (H0: last AR or last MA coef = 0) ---\n")
+  # Wald statistic
+wald_last_coef <- function(fit, pattern = "^ar") {
+  coefs <- fit$coef
+  V <- fit$var.coef
+  # Identify AR or MA coefficients
+  nm <- grep(pattern, names(coefs), value = TRUE)
+  if (length(nm) == 0) return(c(W = NA, df = NA, p.value = NA, tested = NA))
+   # Select the last lag coefficient
+  last <- nm[length(nm)]
+  b <- coefs[last]
+  var_b <- V[last, last]
+  # Wald statistic
+  W <- as.numeric(b^2 / var_b)
+  pval <- pchisq(W, df = 1, lower.tail = FALSE)
+  c(W = W, df = 1, p.value = pval, tested = last)
+}
+
+# Apply Wald test for AR and MA parts separately
+cat("\n", model_labels["ARMA22"], "\n"); print(wald_last_coef(models$ARMA22, "^ar")); print(wald_last_coef(models$ARMA22, "^ma"))
+cat("\n", model_labels["ARMA33"], "\n"); print(wald_last_coef(models$ARMA33, "^ar")); print(wald_last_coef(models$ARMA33, "^ma"))
+cat("\n", model_labels["ARMA44"], "\n"); print(wald_last_coef(models$ARMA44, "^ar")); print(wald_last_coef(models$ARMA44, "^ma"))
+
+# 3) Information Criteria (AIC and BIC)
+# Select model minimizing information criteria
+cat("\n--- Information criteria (ARMA(1,1)..ARMA(4,4)) ---\n")
+ARMA_names <- c("ARMA11","ARMA22","ARMA33","ARMA44")
+AIC_values <- sapply(models[ARMA_names], AIC)
+BIC_values <- sapply(models[ARMA_names], BIC)
+
+print(AIC_values)
+print(BIC_values)
+# Identify best models
+cat("Best AIC:", model_labels[names(which.min(AIC_values))], "\n")
+cat("Best BIC:", model_labels[names(which.min(BIC_values))], "\n")
+
+# 4) Ljung-Box Tests on Residuals
+# Test for residual autocorrelation up to lag 18
+# H0: residuals are white noise
+cat("\n--- Ljung-Box residual autocorrelation tests (lags 1..18) ---\n")
+
+LB_pvalues <- function(fit, max_lag = 18) {
+  u <- residuals(fit)
+  p <- length(grep("^ar", names(fit$coef)))
+  q <- length(grep("^ma", names(fit$coef)))
+  fitdf <- p + q
+
+  sapply((fitdf+1):max_lag, function(L)
+    Box.test(u, lag = L, type = "Ljung-Box", fitdf = fitdf)$p.value
+  )
+}
+
+LB_ARMA <- lapply(models[ARMA_names], LB_pvalues, max_lag = 18)
+for (nm in names(LB_ARMA)) {
+  cat("\n", model_labels[nm], "Ljung-Box p-values (lags fitdf+1..18):\n", sep = "")
+  print(round(LB_ARMA[[nm]], 3))
+}
+
+```
+
+
+**Interpretation 1 :Les tests de Wald et du ratio de vraisemblance indiquent que l’ajout de retards au-delà de l’ordre 1 n’est pas statistiquement significatif au seuil de 5 %. Les critères d’information AIC et BIC sont minimisés pour le modèle AR(1). Les tests de Ljung-Box montrent toutefois que l’hypothèse de bruit blanc des résidus peut être rejetée pour certains retards relativement élevés (à partir d’environ le 10ᵉ retard). Néanmoins, ces autocorrélations apparaissent uniquement à des retards éloignés et demeurent quantitativement limitées. Conformément au principe de parcimonie, et étant donné que les retards supplémentaires ne sont pas significatifs, nous retenons le modèle AR(1), qui fournit une approximation adéquate de la dynamique linéaire de court terme.**
+
+**Interpretation 2 :Les critères d’information donnent des recommandations différentes : l’AIC favorise ARMA(4,4) tandis que le BIC, plus parcimonieux, favorise ARMA(1,1). Les tests LR ne montrent pas d’amélioration significative en passant de ARMA(1,1) à ARMA(2,2) ni de ARMA(2,2) à ARMA(3,3), alors que l’amélioration vers ARMA(4,4) est significative. Cependant, les tests de Ljung-Box indiquent une autocorrélation résiduelle pour tous les modèles considérés. Conformément au principe de parcimonie, on retient donc le modèle ARMA(1,1).**
+
+\newpage
+## Question 3 - Réponses dynamiques et prévision
+
+### 3.a) 
+Pour les deux modèles sélectionnés, évaluez la réponse dynamique sur un horizon de 10 périodes suivant un choc positif de taille \(\sigma=1{,}15\) survenant à la première période. Tracez les deux fonctions de réponse dynamique sur le même graphique et commentez. (4 points) 
+
+
+```{r}
+library(forecast)
+
+sigma <- 1.15
+H <- 10   # Horizon length (10 periods)
+
+# --- Extract coefficients (consistent with forecast::Arima parameterization) ---
+phi_ar1 <- as.numeric(AR1$coef["ar1"])
+
+phi_arma   <- as.numeric(ARMA11$coef["ar1"])
+theta_arma <- as.numeric(ARMA11$coef["ma1"])
+
+# (A) Dynamic response for AR(1)
+# IRF_h = sigma * phi^(h-1)
+irf_ar1 <- sigma * phi_ar1^(0:(H-1))
+
+# (B) Dynamic response for ARMA(1,1)
+# psi0 = 1
+# psi1 = phi + theta
+# psi_k = phi^(k-2) * (phi + theta), for k >= 3
+# IRF = sigma * psi
+psi <- numeric(H)
+
+psi[1] <- 1
+
+if (H >= 2) {
+  psi[2] <- phi_arma + theta_arma
+}
+
+if (H >= 3) {
+  for (k in 3:H) {
+    psi[k] <- (phi_arma^(k-2)) * (phi_arma + theta_arma)
+  }
+}
+
+irf_arma11 <- sigma * psi
+
+# Plot both impulse responses on the same graph
+steps <- 1:H
+
+library(ggplot2)
+
+# Ensure numeric format (avoid unexpected object types)
+irf_ar1    <- as.numeric(irf_ar1)
+irf_arma11 <- as.numeric(irf_arma11)
+
+# Create a long-format data frame for ggplot
+df <- data.frame(
+  Step = rep(steps, 2),
+  Response = c(irf_ar1, irf_arma11),
+  Model = factor(rep(c("AR(1)", "ARMA(1,1)"), each = H))
+)
+
+# Generate the plot
+ggplot(df, aes(x = Step, y = Response, color = Model)) +
+  geom_line(size = 1.2) +
+  geom_hline(yintercept = 0, linetype = "dashed") +
+  labs(
+    title = paste0("Impulse Response to a +", sigma, " shock at period 1"),
+    x = "Horizon (periods)",
+    y = "Dynamic response"
+  ) +
+  theme_minimal() +
+  scale_color_manual(values = c("blue", "red"))
+
+# Print numerical values (useful for reporting)
+out <- data.frame(
+  Step = steps,
+  IRF_AR1 = irf_ar1,
+  IRF_ARMA11 = irf_arma11
+)
+
+print(out)
+```
+
+
+**Interpretation:Les deux fonctions de réponse commencent à 1,15 en période 1, reflétant l’effet immédiat du choc positif.Les réponses décroissent rapidement vers zéro, ce qui indique que l’effet du choc est transitoire et que les processus sont stationnaires.Le modèle ARMA(1,1) présente une légère différence à court terme en raison du terme MA(1), mais les deux modèles convergent rapidement vers l’équilibre.**
+
+
+### 3.b) 
+Un choc négatif de taille \(\sigma=1{,}15\) survient pendant trois périodes consécutives (t, t+1, t+2). Tracez les fonctions de réponse dynamique des deux modèles sélectionnés sur un horizon de 20 périodes et expliquez ce qui se passe. (4 points) 
+
+
+```{r}
+# Question 3.b) Dynamic responses to THREE consecutive shocks
+# Shock: negative, size sigma = 1.15, occurs at t, t+1, t+2
+# Horizon: 20 periods
+
+library(forecast)
+library(ggplot2)
+
+sigma <- 1.15
+H <- 20
+
+# ===== Extract coefficients =====
+phi_ar1 <- as.numeric(AR1$coef["ar1"])
+
+phi_arma   <- as.numeric(ARMA11$coef["ar1"])
+theta_arma <- as.numeric(ARMA11$coef["ma1"])
+
+# ===== Helper: impulse response weights psi for AR(1) and ARMA(1,1) =====
+psi_ar1 <- function(phi, H){
+  # psi_0..psi_{H-1} for AR(1): 1, phi, phi^2, ...
+  phi^(0:(H-1))
+}
+
+psi_arma11 <- function(phi, theta, H){
+  # psi_0 = 1, psi_1 = phi + theta, psi_h = phi^(h-1)*(phi+theta) for h>=2
+  psi <- numeric(H)
+  psi[1] <- 1
+  if (H >= 2) psi[2] <- phi + theta
+  if (H >= 3) {
+    for (h in 3:H) {
+      psi[h] <- (phi^(h-2)) * (phi + theta)
+    }
+  }
+  psi
+}
+
+psi1_ar1    <- psi_ar1(phi_ar1, H)
+psi1_arma11 <- psi_arma11(phi_arma, theta_arma, H)
+
+# Three consecutive negative shocks at t, t+1, t+2 
+# shock sequence e_t: [-sigma, -sigma, -sigma, 0, 0, ...]
+e <- c(rep(-sigma, 3), rep(0, H-3))
+
+# Convolution: response[h] = sum_{j=0}^{h-1} psi[j] * e[h-j]
+conv_response <- function(psi, e){
+  H <- length(e)
+  resp <- numeric(H)
+  for (h in 1:H){
+    s <- 0
+    for (j in 1:h){
+      # psi[j] corresponds to psi_{j-1}
+      # e[h-j+1] corresponds to shock at time (h-j)
+      s <- s + psi[j] * e[h-j+1]
+    }
+    resp[h] <- s
+  }
+  resp
+}
+
+irf3_ar1    <- conv_response(psi1_ar1, e)
+irf3_arma11 <- conv_response(psi1_arma11, e)
+
+# Plot both on the same graph 
+df <- data.frame(
+  Step = rep(1:H, 2),
+  Response = c(irf3_ar1, irf3_arma11),
+  Model = factor(rep(c("AR(1)", "ARMA(1,1)"), each = H))
+)
+
+ggplot(df, aes(x = Step, y = Response, color = Model)) +
+  geom_line(size = 1.2) +
+  geom_hline(yintercept = 0, linetype = "dashed") +
+  labs(
+    title = paste0("Dynamic response to three consecutive negative shocks (-", sigma, ")"),
+    x = "Horizon (periods)",
+    y = "Dynamic response"
+  ) +
+  theme_minimal()
+
+
+
+```
+
+
+**Interpretation:Les trois chocs négatifs successifs produisent un effet cumulatif : la réponse devient de plus en plus négative durant les trois premières périodes, car chaque nouveau choc s’ajoute aux effets retardés des précédents.Après la troisième période, en l’absence de nouveaux chocs, la série revient progressivement vers zéro. Cela confirme que les deux modèles sont stationnaires et que les effets sont transitoires.Les dynamiques de l’AR(1) et de l’ARMA(1,1) sont très proches, avec un ajustement légèrement plus lisse pour le modèle ARMA.**
+
+
+### 3.c) 
+Prévision: divisez l’échantillon en un échantillon d’apprentissage et un échantillon de validation. Ce dernier doit contenir les 34 dernières observations.
+Ré-estimez les deux modèles sélectionnés sur l’échantillon d’apprentissage. Pour chaque modèle:
+
+- Calculez les prévisions à un pas d’avance: \(E_t(y_{t+1})\) pour les modèles AR et ARMA sélectionnés. 
+
+- Tracez ces prévisions et la vrai série  \(y_t\) sur un même graphique pour la période de validation. 
+
+- Tracez également la vrai série en niveaux \(z_t\) avec les prévisions des deux modèles et la prévision naïve: \( E_t(z_{t+1})=z_t \).
+
+
+
+
+```{r}
+library(forecast)
+library(ggplot2)
+#   z_t : level series (numeric vector), length = T
+#   y_t : stationary series used for modeling (numeric vector)
+#         Typically y_t = diff(z_t) * scale_factor (NA removed)
+
+n_val <- 34
+scale_factor <- 100
+
+# (1) Split into training / validation (last 34 observations in validation)
+n <- length(y_t)
+idx_val <- (n - n_val + 1):n
+
+y_train <- y_t[-idx_val]
+y_val   <- y_t[idx_val]
+
+
+# (2) Re-estimate the two selected models on TRAINING
+fit_AR1    <- forecast::Arima(y_train, order = c(1,0,0), include.mean = TRUE)
+fit_ARMA11 <- forecast::Arima(y_train, order = c(1,0,1), include.mean = TRUE)
+
+# (3) 1-step-ahead forecasts over the validation period
+#     Idea: keep parameters fixed (estimated on training) and compute fitted values (one-step predictions) on full sample.
+fit_AR1_full    <- forecast::Arima(y_t, model = fit_AR1)
+fit_ARMA11_full <- forecast::Arima(y_t, model = fit_ARMA11)
+
+yhat_AR1    <- as.numeric(fitted(fit_AR1_full))[idx_val]
+yhat_ARMA11 <- as.numeric(fitted(fit_ARMA11_full))[idx_val]
+
+# (4) Plot forecasts vs actual y_t on validation period
+steps <- 1:n_val
+
+df_y <- data.frame(
+  Step = rep(steps, 3),
+  Value = c(as.numeric(y_val), yhat_AR1, yhat_ARMA11),
+  Series = factor(rep(c("y (actual)", "AR(1) forecast", "ARMA(1,1) forecast"),
+                      each = n_val))
+)
+
+ggplot(df_y, aes(x = Step, y = Value, color = Series)) +
+  geom_line(linewidth = 1.1) +
+  labs(title = "Validation period: 1-step-ahead forecasts for y",
+       x = "Validation steps (last 34 obs)",
+       y = "y") +
+  theme_minimal()
+
+
+# (5) Convert y-forecasts into level forecasts for z
+#     If y_t = diff(z_t) * scale_factor (NA removed):
+#       y_t[i] corresponds to (z_{i+1} - z_i) * scale_factor
+#     So: z_{i+1|i} = z_i + yhat[i]/scale_factor
+# Align z with y:
+# z_prev[i] = z_t[i]      (current level)
+# z_next[i] = z_t[i+1]    (next level that y_t[i] is about)
+z_prev <- z_t[1:n]
+z_next <- z_t[2:(n+1)]
+
+z_true_val <- z_next[idx_val]
+
+z_hat_AR1    <- z_prev[idx_val] + yhat_AR1 / scale_factor
+z_hat_ARMA11 <- z_prev[idx_val] + yhat_ARMA11 / scale_factor
+
+# Naive forecast: E_t(z_{t+1}) = z_t  => forecast equals current level
+z_hat_naive <- z_prev[idx_val]
+
+# (6) Plot level z: actual vs two model forecasts vs naive
+df_z <- data.frame(
+  Step = rep(steps, 4),
+  Value = c(z_true_val, z_hat_AR1, z_hat_ARMA11, z_hat_naive),
+  Series = factor(rep(c("z (actual)", "AR(1) forecast", "ARMA(1,1) forecast", "Naive: z_t"),
+                      each = n_val))
+)
+
+ggplot(df_z, aes(x = Step, y = Value, color = Series)) +
+  geom_line(linewidth = 1.1) +
+  labs(title = "Validation period: level z forecasts (models vs naive)",
+       x = "Validation steps (last 34 obs)",
+       y = "z") +
+  theme_minimal()
+# Forecast accuracy measures 
+# Errors for y_t forecasts
+err_AR1_y <- y_val - yhat_AR1
+err_ARMA11_y <- y_val - yhat_ARMA11
+
+rmse <- function(e) sqrt(mean(e^2))
+mae  <- function(e) mean(abs(e))
+
+cat("Forecast accuracy for y (validation period)\n")
+cat("AR(1)   - RMSE:", rmse(err_AR1_y),
+    " MAE:", mae(err_AR1_y), "\n")
+
+cat("ARMA(1,1) - RMSE:", rmse(err_ARMA11_y),
+    " MAE:", mae(err_ARMA11_y), "\n")
+
+# Errors for z (level forecasts)
+err_AR1_z <- z_true_val - z_hat_AR1
+err_ARMA11_z <- z_true_val - z_hat_ARMA11
+err_naive_z <- z_true_val - z_hat_naive
+
+cat("\nForecast accuracy for z (levels)\n")
+cat("AR(1)   - RMSE:", rmse(err_AR1_z),
+    " MAE:", mae(err_AR1_z), "\n")
+
+cat("ARMA(1,1) - RMSE:", rmse(err_ARMA11_z),
+    " MAE:", mae(err_ARMA11_z), "\n")
+
+cat("Naive     - RMSE:", rmse(err_naive_z),
+    " MAE:", mae(err_naive_z), "\n")
+
+```
+
+**Interprétation :Les mesures RMSE et MAE confirment que les modèles AR(1) et ARMA(1,1) présentent des performances très similaires sur l’échantillon de validation. Le modèle AR(1) affiche des erreurs légèrement plus faibles, mais l’écart demeure marginal. De plus, la prévision naïve obtient des résultats comparables en niveaux, ce qui reflète la forte persistance de la série et suggère qu’un modèle plus complexe n’apporte pas d’amélioration substantielle en termes de précision prédictive.**
+
+
+\newpage
+
+## Question 4 - Modeliser la volatilité conditionnelle
+
+###  4.a) 
+Tracez la fonction d'autocorrelation de \(y_t^2\) . Qu'est-ce que vous pouvez conclure?
+
+```{r}
+
+# y_t is your stationary series (already defined as dz)
+y_t <- as.numeric(dz)
+y_t <- y_t[!is.na(y_t)]
+
+# Compute squared series
+y2 <- y_t^2
+
+# Plot ACF of y_t^2 (up to 18 lags as in previous questions)
+acf(y2, lag.max = 36,
+    main = expression(ACF~"of"~y[t]^2),
+    xlab = "Lag",
+    ylab = "ACF")
+```
+
+
+**Interpretation: L’ACF de yt^2 montre plusieurs autocorrélations significatives à différents retards (certaines dépassent les bandes de confiance). Cela indique que la variance conditionnelle n’est pas constante dans le temps.On observe donc une dépendance dans les carrés des résidus, ce qui suggère la présence d’effets ARCH et un phénomène de volatilité conditionnelle (volatility clustering). Il est donc pertinent de modéliser la variance à l’aide d’un modèle ARCH ou GARCH.**
+
+
+### 4.b) 
+Estimez les versions ARCH(1) et GARCH(1,1) des modèles AR et ARMA sélectionnés à la question 2 à l’aide du maximum de vraisemblance sur l’échantillon d’apprentissage. Présentez les estimations. 
+
+
+```{r}
+# Packages
+library(rugarch)
+
+# (0) Training sample: last 34 obs are validation (as in Q3)
+h_out  <- 34
+n      <- length(y_t)
+y_train <- y_t[1:(n - h_out)]
+
+# (1) ARCH(1) on AR(1)
+#     variance: sGARCH(1,0)  ==> ARCH(1)
+#     mean    : AR(1)
+spec_arch_ar1 <- ugarchspec(
+  variance.model = list(model = "sGARCH", garchOrder = c(1, 0)),  # ARCH(1)
+  mean.model     = list(armaOrder = c(1, 0), include.mean = TRUE),# AR(1)
+  distribution.model = "norm"
+)
+
+fit_arch_ar1 <- ugarchfit(spec = spec_arch_ar1, data = y_train, solver = "hybrid")
+
+
+# (2) ARCH(1) on ARMA(1,1)
+spec_arch_arma11 <- ugarchspec(
+  variance.model = list(model = "sGARCH", garchOrder = c(1, 0)),  # ARCH(1)
+  mean.model     = list(armaOrder = c(1, 1), include.mean = TRUE),# ARMA(1,1)
+  distribution.model = "norm"
+)
+
+fit_arch_arma11 <- ugarchfit(spec = spec_arch_arma11, data = y_train, solver = "hybrid")
+
+
+# (3) GARCH(1,1) on AR(1)
+spec_garch_ar1 <- ugarchspec(
+  variance.model = list(model = "sGARCH", garchOrder = c(1, 1)),  # GARCH(1,1)
+  mean.model     = list(armaOrder = c(1, 0), include.mean = TRUE),# AR(1)
+  distribution.model = "norm"
+)
+
+fit_garch_ar1 <- ugarchfit(spec = spec_garch_ar1, data = y_train, solver = "hybrid")
+
+# (4) GARCH(1,1) on ARMA(1,1)
+spec_garch_arma11 <- ugarchspec(
+  variance.model = list(model = "sGARCH", garchOrder = c(1, 1)),  # GARCH(1,1)
+  mean.model     = list(armaOrder = c(1, 1), include.mean = TRUE),# ARMA(1,1)
+  distribution.model = "norm"
+)
+
+fit_garch_arma11 <- ugarchfit(spec = spec_garch_arma11, data = y_train, solver = "hybrid")
+
+# (5) Output: Maximum Likelihood Estimates 
+cat("ARCH(1) on AR(1)\n")
+show(fit_arch_ar1)
+
+cat("ARCH(1) on ARMA(1,1)\n")
+show(fit_arch_arma11)
+
+cat("GARCH(1,1) on AR(1)\n")
+show(fit_garch_ar1)
+
+
+cat("GARCH(1,1) on ARMA(1,1)\n")
+show(fit_garch_arma11)
+
+
+
+```
+
+## Interpretation of Estimated Models
+
+---
+
+###  AR(1)–ARCH(1)
+
+Mean equation:
+$$
+y_t = -0.079103 + 0.270501 y_{t-1} + u_t
+$$
+
+Variance equation:
+$$
+h_t = 1.611804 + 0.216610 u_{t-1}^2
+$$
+
+---
+
+###  ARMA(1,1)–ARCH(1)
+
+Mean equation:
+$$
+y_t = 0.082331 + 0.135214 y_{t-1}
++ u_t - 0.166034 u_{t-1}
+$$
+
+Variance equation:
+$$
+h_t = 1.591721 + 0.229466 u_{t-1}^2
+$$
+
+---
+
+###  AR(1)–GARCH(1,1)
+
+Mean equation:
+$$
+y_t = 0.066213 + 0.243925 y_{t-1} + u_t
+$$
+
+Variance equation:
+$$
+h_t = 0.047610
++ 0.151094 u_{t-1}^2
++ 0.838803 h_{t-1}
+$$
+
+---
+
+###  ARMA(1,1)–GARCH(1,1)
+
+Mean equation:
+$$
+y_t = 0.061323 - 0.015589 y_{t-1}
++ u_t - 0.281086 u_{t-1}
+$$
+
+Variance equation:
+$$
+h_t = 0.061907
++ 0.181113 u_{t-1}^2
++ 0.805733 h_{t-1}
+$$
+**Interprétation :Les paramètres estimés satisfont les conditions usuelles d’un modèle GARCH(1,1), à savoir omega > 0, alpha1 >= 0 et beta1 >= 0. De plus, la condition de stationnarité de la variance conditionnelle est vérifiée puisque alpha1 + beta1 < 1. Cela garantit l’existence d’une variance inconditionnelle finie et confirme que le processus est stationnaire au sens de la variance.**
+
+
+### 4.c) 
+Effectuez des tests de rapport de vraisemblance pour choisir entre AR, AR-ARCH(1) et AR-GARCH(1,1). Répétez la procédure pour ARMA, ARMA-ARCH(1) et ARMA-GARCH(1,1).  
+
+```{r}
+# Likelihood Ratio Tests:
+#   (1) AR vs AR-ARCH(1) vs AR-GARCH(1,1)
+#   (2) ARMA vs ARMA-ARCH(1) vs ARMA-GARCH(1,1)
+# Using MLE on training sample
+
+# 0) Training / validation split (last 34 obs = validation)
+h_out <- 34
+n <- length(y_t)        
+y_train <- y_t[1:(n - h_out)]
+y_valid <- y_t[(n - h_out + 1):n]
+
+# 1) Mean models (Gaussian MLE) on training sample
+AR1_train    <- forecast::Arima(y_train, order = c(1,0,0), include.mean = TRUE, method = "ML")
+ARMA11_train <- forecast::Arima(y_train, order = c(1,0,1), include.mean = TRUE, method = "ML")
+
+# Helper: log-likelihood and number of parameters for Arima()
+ll_arima <- function(fit) as.numeric(logLik(fit))
+k_arima  <- function(fit) as.numeric(attr(logLik(fit), "df"))   # includes sigma^2
+
+
+# 2) ARCH/GARCH specs (rugarch) on training sample
+# --- ARCH(1) on AR(1) ---
+spec_arch_ar1 <- ugarchspec(
+  variance.model = list(model = "sGARCH", garchOrder = c(1, 0)),  # ARCH(1)
+  mean.model     = list(armaOrder = c(1, 0), include.mean = TRUE),
+  distribution.model = "norm"
+)
+fit_arch_ar1 <- ugarchfit(spec = spec_arch_ar1, data = y_train, solver = "hybrid")
+
+# --- GARCH(1,1) on AR(1) ---
+spec_garch_ar1 <- ugarchspec(
+  variance.model = list(model = "sGARCH", garchOrder = c(1, 1)),  # GARCH(1,1)
+  mean.model     = list(armaOrder = c(1, 0), include.mean = TRUE),
+  distribution.model = "norm"
+)
+fit_garch_ar1 <- ugarchfit(spec = spec_garch_ar1, data = y_train, solver = "hybrid")
+
+# --- ARCH(1) on ARMA(1,1) ---
+spec_arch_arma11 <- ugarchspec(
+  variance.model = list(model = "sGARCH", garchOrder = c(1, 0)),  # ARCH(1)
+  mean.model     = list(armaOrder = c(1, 1), include.mean = TRUE),
+  distribution.model = "norm"
+)
+fit_arch_arma11 <- ugarchfit(spec = spec_arch_arma11, data = y_train, solver = "hybrid")
+
+# --- GARCH(1,1) on ARMA(1,1) ---
+spec_garch_arma11 <- ugarchspec(
+  variance.model = list(model = "sGARCH", garchOrder = c(1, 1)),  # GARCH(1,1)
+  mean.model     = list(armaOrder = c(1, 1), include.mean = TRUE),
+  distribution.model = "norm"
+)
+fit_garch_arma11 <- ugarchfit(spec = spec_garch_arma11, data = y_train, solver = "hybrid")
+
+# Helper: log-likelihood and number of parameters for ugarchfit
+ll_ugarch <- function(fit) as.numeric(fit@fit$LLH)
+k_ugarch  <- function(fit) length(coef(fit))
+
+# 3) Likelihood Ratio test function
+lr_test <- function(ll0, k0, ll1, k1, name0 = "Model0", name1 = "Model1") {
+  LR <- 2 * (ll1 - ll0)
+  df <- k1 - k0
+  p  <- 1 - pchisq(LR, df = df)
+  data.frame(Comparison = paste(name0, "vs", name1), LR = LR, df = df, p_value = p)
+}
+
+
+# 4) AR family: AR vs AR-ARCH vs AR-GARCH
+
+ll_ar    <- ll_arima(AR1_train);    k_ar    <- k_arima(AR1_train)
+ll_arch  <- ll_ugarch(fit_arch_ar1);  k_arch  <- k_ugarch(fit_arch_ar1)
+ll_garch <- ll_ugarch(fit_garch_ar1); k_garch <- k_ugarch(fit_garch_ar1)
+
+LR_AR_1 <- lr_test(ll_ar,   k_ar,   ll_arch,  k_arch,  "AR(1)", "AR(1)-ARCH(1)")
+LR_AR_2 <- lr_test(ll_ar,   k_ar,   ll_garch, k_garch, "AR(1)", "AR(1)-GARCH(1,1)")
+LR_AR_3 <- lr_test(ll_arch, k_arch, ll_garch, k_garch, "AR(1)-ARCH(1)", "AR(1)-GARCH(1,1)")
+
+# 5) ARMA family: ARMA vs ARMA-ARCH vs ARMA-GARCH
+ll_arma    <- ll_arima(ARMA11_train);    k_arma    <- k_arima(ARMA11_train)
+ll_archA   <- ll_ugarch(fit_arch_arma11);  k_archA   <- k_ugarch(fit_arch_arma11)
+ll_garchA  <- ll_ugarch(fit_garch_arma11); k_garchA  <- k_ugarch(fit_garch_arma11)
+
+LR_ARMA_1 <- lr_test(ll_arma,  k_arma,  ll_archA,  k_archA,  "ARMA(1,1)", "ARMA(1,1)-ARCH(1)")
+LR_ARMA_2 <- lr_test(ll_arma,  k_arma,  ll_garchA, k_garchA, "ARMA(1,1)", "ARMA(1,1)-GARCH(1,1)")
+LR_ARMA_3 <- lr_test(ll_archA, k_archA, ll_garchA, k_garchA, "ARMA(1,1)-ARCH(1)", "ARMA(1,1)-GARCH(1,1)")
+
+
+# 6) Print results
+LR_results <- rbind(LR_AR_1, LR_AR_2, LR_AR_3, LR_ARMA_1, LR_ARMA_2, LR_ARMA_3)
+print(LR_results)
+```
+
+**Interpretation:# Dans les deux familles (AR et ARMA),le modèle GARCH(1,1) domine significativement les versions ARCH(1) et homoscédastiques.Le modèle final recommandé est donc :ARMA(1,1)-GARCH(1,1) car il offre la meilleure vraisemblance et capture correctement la dynamique de volatilité.**
+
+
+### 4.d) 
+Effectuez un test de specification de la volatilité conditionnelle sur le AR-ARCH(1) et le AR-GARCH(1,1). Quel est le meilleur modèle pour la volatilité conditionnelle?
+```{r}
+
+max_lag <- 18
+
+# 1) Get standardized residuals: z_t = u_t / sqrt(h_t)
+# If volatility model is well specified, z_t should be ~ i.i.d.
+# Then z_t^2 should have no autocorrelation (no remaining ARCH effects).
+
+z_arch  <- residuals(fit_arch_ar1,  standardize = TRUE)
+z_garch <- residuals(fit_garch_ar1, standardize = TRUE)
+
+z2_arch  <- as.numeric(z_arch)^2
+z2_garch <- as.numeric(z_garch)^2
+
+
+# 2) ACF of squared standardized residuals
+
+par(mfrow = c(1,2))
+acf(z2_arch,  lag.max = max_lag, main = "ACF of z_t^2 : AR-ARCH(1)")
+acf(z2_garch, lag.max = max_lag, main = "ACF of z_t^2 : AR-GARCH(1,1)")
+par(mfrow = c(1,1))
+
+
+# 3) Ljung-Box tests on squared standardized residuals
+# H0: no serial correlation in z_t^2  (=> no remaining ARCH effects)
+
+LB_arch  <- sapply(1:max_lag, function(L) Box.test(z2_arch,  lag = L, type = "Ljung-Box")$p.value)
+LB_garch <- sapply(1:max_lag, function(L) Box.test(z2_garch, lag = L, type = "Ljung-Box")$p.value)
+
+results_spec <- data.frame(
+  Lag = 1:max_lag,
+  pval_ARCH  = round(LB_arch,  4),
+  rej_ARCH   = as.integer(LB_arch  < 0.05),
+  pval_GARCH = round(LB_garch, 4),
+  rej_GARCH  = as.integer(LB_garch < 0.05)
+)
+
+print(results_spec)
+
+cat("\nNumber of rejections (5%) up to lag", max_lag, ":\n")
+cat("AR-ARCH(1)  :", sum(LB_arch  < 0.05), "\n")
+cat("AR-GARCH(1,1):", sum(LB_garch < 0.05), "\n")
+```
+
+**Interpretation:Les tests de Ljung-Box sont effectués sur les résidus standardisés au carré afin de détecter des effets ARCH résiduels. AR-ARCHI(1):Sur 18 retards, 14 rejets au seuil de 5%.Les résidus au carré présentent encore une autocorrélation significative.Le modèle ARCH(1) ne capture pas complètement la dynamique de la volatilité conditionnelle.AR-GARCH(1,1):Aucun rejet au seuil de 5%.Les résidus au carré ne présentent pas d’autocorrélation significative.Donc, Le modèle GARCH(1,1) capture correctement l’hétéroscédasticité conditionnelle.**
+
+### 4.e) 
+Comme dans la partie 3, tracez les prévisions à un pas pour \(y_t\) pour la période couverte par l'échantillon de validation. Comparez-les à celles obtenues dans la partie 3.
+
+```{r}
+###      Compare Part 3 (AR1/ARMA11) vs Part 4 (AR/ARMA + ARCH/GARCH)
+library(tidyr)
+
+n     <- length(y_t)
+
+y_train <- y_t[1:(n - h_out)]
+y_test  <- y_t[(n - h_out + 1):n]
+
+# (1) Rolling forecasts for AR/ARMA (Part 3)
+#     Expanding window: re-estimate each time, 1-step ahead
+rolling_arima_forecast <- function(y_full, h_out, order) {
+  n <- length(y_full)
+  fc <- rep(NA, h_out)
+
+  for (i in 1:h_out) {
+    y_sub <- y_full[1:(n - h_out + i - 1)]  # expanding window
+    fit   <- forecast::Arima(y_sub, order = order, include.mean = TRUE, method = "ML")
+    fc[i] <- as.numeric(forecast::forecast(fit, h = 1)$mean)
+  }
+  fc
+}
+
+f_ar1_roll    <- rolling_arima_forecast(y_t, h_out, order = c(1,0,0))
+f_arma11_roll <- rolling_arima_forecast(y_t, h_out, order = c(1,0,1))
+
+
+# (2) Rolling forecasts for AR/ARMA + ARCH(1) / GARCH(1,1) (Part 4)
+#     Note: ARCH(1) = sGARCH(1,0) in rugarch (garchOrder = c(1,0))
+rolling_garch_forecast <- function(y_full, h_out, arma_order, garch_order) {
+  n <- length(y_full)
+  fc <- rep(NA, h_out)
+
+  for (i in 1:h_out) {
+    y_sub <- y_full[1:(n - h_out + i - 1)]  # expanding window
+
+    spec <- ugarchspec(
+      mean.model     = list(armaOrder = arma_order, include.mean = TRUE),
+      variance.model = list(model = "sGARCH", garchOrder = garch_order),
+      distribution.model = "norm"
+    )
+
+    fit <- tryCatch(
+      ugarchfit(spec = spec, data = y_sub, solver = "hybrid"),
+      error = function(e) NULL
+    )
+
+    if (!is.null(fit)) {
+      fc1   <- ugarchforecast(fit, n.ahead = 1)
+      fc[i] <- as.numeric(fitted(fc1))  # point forecast of y_{t+1|t}
+    } else {
+      fc[i] <- NA
+    }
+  }
+  fc
+}
+
+# --- ARCH(1) ---
+f_ar1_arch_roll    <- rolling_garch_forecast(y_t, h_out, arma_order = c(1,0), garch_order = c(1,0))
+f_arma11_arch_roll <- rolling_garch_forecast(y_t, h_out, arma_order = c(1,1), garch_order = c(1,0))
+
+# --- GARCH(1,1) ---
+f_ar1_garch_roll    <- rolling_garch_forecast(y_t, h_out, arma_order = c(1,0), garch_order = c(1,1))
+f_arma11_garch_roll <- rolling_garch_forecast(y_t, h_out, arma_order = c(1,1), garch_order = c(1,1))
+
+
+# (3) Plot: Actual vs all rolling 1-step forecasts
+plot_df <- data.frame(
+  t = 1:h_out,
+  Actual        = y_test,
+  AR1           = f_ar1_roll,
+  ARMA11        = f_arma11_roll,
+  AR1_ARCH      = f_ar1_arch_roll,
+  AR1_GARCH     = f_ar1_garch_roll,
+  ARMA11_ARCH   = f_arma11_arch_roll,
+  ARMA11_GARCH  = f_arma11_garch_roll
+) %>%
+  pivot_longer(-t, names_to = "Series", values_to = "y")
+
+ggplot(plot_df, aes(x = t, y = y, color = Series)) +
+  geom_line(linewidth = 1.1) +
+  theme_minimal() +
+  labs(
+    title = "Rolling 1-step ahead forecasts vs Actual (Part 3 vs Part 4)",
+    x = "Validation steps (last 34 obs)",
+    y = expression(y[t])
+  ) +
+  theme(legend.position = "top")
+
+```
+
+**Interpretation:Les prévisions à un pas des modèles AR(1), ARMA(1,1) et de leurs versions ARCH/GARCH sont très similaires sur l’échantillon de validation.L’ajout d’ARCH ou de GARCH n’améliore pas significativement les prévisions ponctuelles de la moyenne. Les différences concernent surtout la variance conditionnelle.Ainsi, les modèles GARCH apportent une amélioration pour la modélisation de la volatilité, mais pas pour la prévision de la moyenne à court terme.**
+
+
+### 4.f) 
+
+Comparez l'erreur quadratique moyenne de la prévision à un pas pour \( y_t \) pour les deux modèles sélectionnés dans la partie 3, les deux nouveaux modèles, la prévision naïve \( E_t y_{t+1} = y_{t}\) et la prévision paresseuse \( E_t y_{t+1} = 0\) pour tout \(t\). La modélisation de la covariance conditionnelle était-elle utile ?
+
+```{r}
+### Models:
+###   Benchmarks : Lazy (0), Naive (y_t)
+###   Part 3     : AR(1), ARMA(1,1)
+###   Part 4     : AR(1)-GARCH(1,1), ARMA(1,1)-GARCH(1,1)
+# Setup
+h_out   <- 34
+n       <- length(y_t)
+y_valid <- y_t[(n - h_out + 1):n]
+
+# Rolling 1-step forecasts: AR / ARMA  (Part 3)
+rolling_arima_1step <- function(y_full, h_out, order) {
+  n     <- length(y_full)
+  preds <- numeric(h_out)
+  
+  for (i in 1:h_out) {
+    y_sub <- y_full[1:(n - h_out + i - 1)]   # data up to time t
+    fit   <- forecast::Arima(
+      y_sub,
+      order = order,
+      include.mean = TRUE,
+      method = "ML"
+    )
+    preds[i] <- as.numeric(forecast::forecast(fit, h = 1)$mean)
+  }
+  
+  return(preds)
+}
+
+fc_ar1_roll    <- rolling_arima_1step(y_t, h_out, c(1, 0, 0))
+fc_arma11_roll <- rolling_arima_1step(y_t, h_out, c(1, 0, 1))
+
+# Rolling 1-step forecasts: AR/ARMA + GARCH(1,1)  (Part 4)
+rolling_garch_1step <- function(y_full, h_out, arma_order, garch_order = c(1,1)) {
+  n     <- length(y_full)
+  preds <- rep(NA_real_, h_out)
+  
+  for (i in 1:h_out) {
+    
+    y_sub <- y_full[1:(n - h_out + i - 1)]
+    
+    spec <- ugarchspec(
+      mean.model = list(
+        armaOrder = arma_order,
+        include.mean = TRUE
+      ),
+      variance.model = list(
+        model = "sGARCH",
+        garchOrder = garch_order
+      ),
+      distribution.model = "norm"
+    )
+    
+    fit <- tryCatch(
+      ugarchfit(spec, data = y_sub, solver = "hybrid"),
+      error = function(e) NULL
+    )
+    
+    if (!is.null(fit)) {
+      fc1 <- ugarchforecast(fit, n.ahead = 1)
+      preds[i] <- as.numeric(fitted(fc1))
+    }
+  }
+  
+  return(preds)
+}
+
+fc_ar1_garch_roll    <- rolling_garch_1step(y_t, h_out, arma_order = c(1, 0))
+fc_arma11_garch_roll <- rolling_garch_1step(y_t, h_out, arma_order = c(1, 1))
+
+# Benchmarks
+
+# Naive: E_t[y_{t+1}] = y_t
+fc_naive <- y_t[(n - h_out):(n - 1)]
+
+# Lazy: always predict 0
+fc_lazy <- rep(0, h_out)
+
+
+# RMSE function
+rmse <- function(actual, pred) {
+  sqrt(mean((actual - pred)^2, na.rm = TRUE))
+}
+
+# Compute RMSE for all models
+rmse_table <- data.frame(
+  Model = c(
+    "Lazy  : E[y_{t+1}] = 0",
+    "Naive : E[y_{t+1}] = y_t",
+    "AR(1)                [Part 3]",
+    "ARMA(1,1)            [Part 3]",
+    "AR(1)-GARCH(1,1)     [Part 4]",
+    "ARMA(1,1)-GARCH(1,1) [Part 4]"
+  ),
+  RMSE = c(
+    rmse(y_valid, fc_lazy),
+    rmse(y_valid, fc_naive),
+    rmse(y_valid, fc_ar1_roll),
+    rmse(y_valid, fc_arma11_roll),
+    rmse(y_valid, fc_ar1_garch_roll),
+    rmse(y_valid, fc_arma11_garch_roll)
+  )
+)
+
+# Sort best to worst
+rmse_table <- rmse_table[order(rmse_table$RMSE), ]
+rownames(rmse_table) <- NULL
+
+cat("   RMSE — One-step Rolling Forecasts (Validation)\n")
+print(rmse_table)
+
+
+
+```
+**Interpretation:Le modèle AR(1)-GARCH(1,1) présente la plus faible RMSE, donc la meilleure performance en prévision à un pas sur l’échantillon de validation.Cependant, l’amélioration par rapport au modèle AR(1) est très faible (1.1346 contre 1.1363).Cela indique que la modélisation de la variance conditionnelle (GARCH) n’améliore que très marginalement la prévision de la moyenne.Le modèle naïf ( $\hat y_{t+1} = y_t$) est clairement moins performant, tandis que la prévision paresseuse (0) donne un résultat proche des modèles AR, ce qui suggère que la série est centrée autour de zéro.En conclusion, la modélisation de l’hétéroscédasticité conditionnelle est surtout utile pour prévoir la volatilité, mais apporte peu d’amélioration pour la prévision du niveau moyen à court terme.**
+
+
+
